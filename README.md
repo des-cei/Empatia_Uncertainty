@@ -88,13 +88,6 @@ $$
 U_{\mathrm{alea}}=\frac{1}{3}\sum_{r=1}^{3}\sigma_r^2.
 $$
 
-The default diagnostic mode measures disagreement around the median:
-
-$$
-U_{\mathrm{epi}}=\frac{1}{3}\sum_{r=1}^{3}
-\left(\mu_r-\operatorname{median}(\mu_1,\mu_2,\mu_3)\right)^2.
-$$
-
 An alternative `average` mode uses variance around the mean. Use the same mode for calibration and target evaluation.
 
 `Read_threshold.py` estimates separate percentile thresholds for each target fold, assessment slot, and affect dimension from calibration-user predictions. `Diagnose_Docs.py` selects the **80th percentile**; the threshold function's default is 90 unless overridden.
@@ -176,22 +169,6 @@ The label packer replaces `9+1` in questionnaire column names with `33`. It read
 
 `Pack_json_graph.py` currently writes the original full-graph cache. Generate the other three full-graph views by explicitly selecting the matching augmentation readers and output filenames. `Pack_json_graph_less.py` currently writes only the reduced jitter cache; it does not create the full four-view set automatically.
 
-## Required integration adjustments
-
-| Issue | Action before running |
-| --- | --- |
-| Original project layout | Replace imports under absent `Graph_process`, `Map_process`, `Ensembles_1215`, and `Ensembles_Threshold` packages with the intended local modules, or restore the original package structure. Restore the missing contrastive loss separately. |
-| Path inconsistencies | Resolve all dataset, JSON, checkpoint, and log paths against a shared project root. Root-level scripts often use `../Json_files` or `../dataset`, while packers use different working-directory assumptions. |
-| Missing doctor encoders | Generate each encoder using the correct doctor-training subjects and fold, excluding calibration and target users. The generic encoder driver writes `user_<ID>_weights.pth`; those files are not a documented substitute for the doctor-specific checkpoints expected by the ensemble scripts. |
-| Output directories | Create JSON, encoder, `Ensemble_checkpoints`, and plot output directories before writing. Replace the hard-coded encoder path in each doctor driver. |
-| Graph batching | Regression drivers create `Data` objects from JSON lists and then expect stacked `(B, N, F)` tensors in `prepare_graph_batch`. Define a consistent collation contract. With standard tensor-based PyG batching, consume `batch.x`, `batch.edge_index`, and `batch.batch` directly instead of applying a second graph-index offset. |
-| Recording length and time | Replace the fixed `total_graphs = 1199` and `10 + graph_index / 60` assumptions with validated recording lengths and actual timestamps. Keep augmented views aligned. |
-| Missing targets | Several branches replace missing PANAS labels with `30`. Define and document an appropriate missing-label policy rather than silently treating imputed values as observed ground truth. |
-| Evaluation mode | The epoch-level test loop enters `torch.no_grad()` without switching the model to evaluation mode. Call `model.eval()` for test/calibration, then restore training mode; otherwise dropout remains active and batch-normalization statistics can change on held-out inputs. |
-| Incomplete batches | Test and calibration loaders use `drop_last=True`. Retain final batches for complete evaluation and check for empty loaders on small subsets. |
-| Log completeness | Parsers depend on exact printed markers and, for calibration, four following user-result lines. Validate that all three doctors and all required calibration entries are present. Missing doctors must not silently lower disagreement. |
-| Zero thresholds | Missing calibration scores can produce zero thresholds, while `analyze_distance` divides by those thresholds. Handle missing calibration and zero denominators explicitly. |
-
 ## Intended execution order
 
 Complete the adjustments above first. The following commands identify the workflow; they assume all scripts now use consistent project-root paths.
@@ -240,34 +217,3 @@ Configure its three doctor-log paths first. `Read_Doc.read_doc` currently also r
 
 The diagnostic script prints a nested JSON report indexed by user, assessment slot, and affect dimension, including the case code, uncertainty values, thresholds, and relative threshold exceedance. Plotting utilities require their own paths and output directories to be configured.
 
-## Evaluation and reproducibility
-
-Chapter 6 describes target-independent LOSO training, calibration-based checkpoint selection, and separate final target evaluation. The checked-in scripts preserve earlier experimental choices that differ from that protocol:
-
-- **Encoder selection:** The generic LOSO encoder uses target-user contrastive loss to retain a checkpoint. Use a validation subset drawn from training subjects instead when reproducing strict target-independent evaluation.
-- **Decoder selection:** Doctor scripts choose checkpoints by comparing the training-label distribution with the target user's predicted distribution, using a KL score multiplied by 10. The chapter instead selects on held-out calibration users. Move this selection to calibration data and reserve target predictions for final testing.
-- **Distribution summaries:** The scripts average predicted standard deviations over batches. A Gaussian summary of a predictive mixture generally needs both the average predicted variance and dispersion of predicted means. Document the aggregation rule and preserve per-sample predictions for probabilistic metrics.
-- **Calibration granularity:** Thresholds are estimated separately for each target/slot/dimension from four calibration-user summaries. Treat the percentile as an experimental policy parameter and retain the calibration sample counts.
-- **Metrics:** Gaussian NLL, printed KL scores, uncertainty values, and legacy “in-range probability” summaries are different quantities. The existing accuracy-analysis script checks a `mu ± sigma` interval; do not interpret that automatically as the chapter's chosen interval coverage or error metrics.
-- **Reproducibility:** Save the exact subject partitions, graph variant, timestamp handling, augmentation settings, seeds, label policy, encoder provenance, and checkpoints. The deterministic doctor splitter alone does not make the complete training run deterministic.
-
-No pretrained benchmark results are bundled. Default execution should not be claimed to reproduce the chapter's final MMASH/WESAD scores or triage tables without aligning the experimental protocol.
-
-## Citation
-
-This code is associated with Chapter 6 of the doctoral thesis. A dedicated Chapter 6 paper citation is not specified in this repository. To reference the thesis:
-
-```bibtex
-@phdthesis{sun2026practical,
-  author = {Sun, Junjiao},
-  title  = {Toward Practical and Uncertainty-Aware Affective Computing with Wearable Physiological Signals},
-  school = {Universidad Politécnica de Madrid},
-  year   = {2026}
-}
-```
-
-Please also cite the original dataset publications when using their data.
-
-## License
-
-No repository-level license file is included. Contact the maintainers to clarify reuse and redistribution terms. Dataset access and reuse remain subject to the respective providers' terms.
